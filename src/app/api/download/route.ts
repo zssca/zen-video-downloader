@@ -94,14 +94,17 @@ async function findYtDlp(): Promise<string> {
   const env = process.env.YTDLP_PATH;
   if (env && (await isExecutable(env))) return env;
 
-  const venvCandidate = path.resolve(
-    process.cwd(),
-    "..",
-    ".venv",
-    "bin",
-    process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
-  );
-  if (await isExecutable(venvCandidate)) return venvCandidate;
+  const exeName = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+  const venvBinDir = process.platform === "win32" ? "Scripts" : "bin";
+  const venvCandidates = [
+    path.resolve(process.cwd(), ".venv", venvBinDir, exeName),
+    // Support monorepo layouts where the venv lives one level up.
+    path.resolve(process.cwd(), "..", ".venv", venvBinDir, exeName),
+  ];
+
+  for (const candidate of venvCandidates) {
+    if (await isExecutable(candidate)) return candidate;
+  }
 
   return "yt-dlp"; // fall back to PATH
 }

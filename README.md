@@ -5,9 +5,10 @@ Local Next.js app (App Router) with a shadcn/ui frontend and Node API routes tha
 ## Prereqs
 
 - `yt-dlp` available as either:
-  - `../.venv/bin/yt-dlp` (recommended: create the venv in the repo root and `pip install -r requirements.txt`), or
-  - `yt-dlp` in your PATH (for example via Homebrew)
-- `ffmpeg` is optional but recommended for best quality merges.
+  - `./.venv/bin/yt-dlp` (recommended: `python -m venv .venv && .venv/bin/pip install yt-dlp`), or
+  - `yt-dlp` in your PATH (for example via Homebrew), or
+  - set `YTDLP_PATH` to the full executable path
+- `ffmpeg` is optional but recommended for best quality merges (for example via Homebrew).
 
 ## Run
 
