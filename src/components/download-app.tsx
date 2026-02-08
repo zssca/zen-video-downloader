@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import {
@@ -141,6 +142,11 @@ export function DownloadApp() {
   const downloadFolderRef = useRef<string | null>(null);
 
   const parsed = useMemo(() => extractUrlsOrLines(links), [links]);
+  const isLocalHost = useMemo(() => {
+    if (typeof window === "undefined") return true;
+    const host = window.location.hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  }, []);
 
   function addStatus(text: string, type: StatusType = "info") {
     setStatuses((s) => [...s, { id: uid(), type, text, at: Date.now() }]);
@@ -200,6 +206,14 @@ export function DownloadApp() {
   }, [statuses, stickToBottom]);
 
   async function chooseFolder() {
+    if (!isLocalHost) {
+      addStatus(
+        "Folder picker only works when the app is running locally (http://localhost:3000).",
+        "error"
+      );
+      return;
+    }
+
     setPicking(true);
     addStatus("Opening folder picker...", "info");
     try {
@@ -319,6 +333,14 @@ export function DownloadApp() {
   }
 
   async function startDownload() {
+    if (!isLocalHost) {
+      addStatus(
+        "Downloads are disabled on hosted deployments. Run locally (npm run dev) so yt-dlp can save to your machine.",
+        "error"
+      );
+      return;
+    }
+
     const urls = parsed.unique;
     if (urls.length === 0) {
       addStatus("Paste at least one URL to download.", "error");
@@ -369,6 +391,23 @@ export function DownloadApp() {
 
   return (
     <>
+      {!isLocalHost ? (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Hosted mode: downloads disabled</AlertTitle>
+          <AlertDescription>
+            <p>
+              This app runs <span className="font-medium">yt-dlp</span> on the server and saves to
+              the server filesystem. It only works when you run it locally.
+            </p>
+            <p>
+              Run <span className="font-medium">npm run dev</span> and open{" "}
+              <span className="font-medium">http://localhost:3000</span>.
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>Download</CardTitle>
@@ -396,10 +435,10 @@ export function DownloadApp() {
                       onChange={(e) => setFolder(e.target.value)}
                       placeholder="~/Downloads"
                       spellCheck={false}
-                      disabled={downloading}
+                      disabled={downloading || !isLocalHost}
                     />
                     <InputGroupAddon align="inline-end">
-                      <InputGroupButton onClick={chooseFolder} disabled={busy}>
+                      <InputGroupButton onClick={chooseFolder} disabled={busy || !isLocalHost}>
                         {picking ? (
                           <Spinner data-icon="inline-start" />
                         ) : (
@@ -483,7 +522,7 @@ export function DownloadApp() {
             </FieldGroup>
 
             <div className="space-y-3">
-              <Button type="submit" disabled={busy} className="w-full">
+              <Button type="submit" disabled={busy || !isLocalHost} className="w-full">
                 {downloading ? (
                   <Spinner data-icon="inline-start" />
                 ) : (

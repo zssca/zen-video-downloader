@@ -11,6 +11,9 @@ export const runtime = "nodejs";
 const MAX_URLS = 200;
 const DOWNLOAD_TIMEOUT_MS = 15 * 60_000;
 
+const IS_VERCEL = process.env.VERCEL === "1";
+const ALLOW_HOSTED_DOWNLOADS = process.env.ALLOW_HOSTED_DOWNLOADS === "1";
+
 type DownloadRequestBody = {
   urls?: unknown;
   folder?: unknown;
@@ -240,80 +243,112 @@ function cleanYtDlpStderr(stderr: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as DownloadRequestBody;
-  const urls = normalizeUrls(body.urls);
-  if (urls.length === 0) {
-    return NextResponse.json(
-      { status: "error", message: "No URLs provided" },
-      { status: 400 }
-    );
-  }
-  if (urls.length > MAX_URLS) {
-    return NextResponse.json(
-      { status: "error", message: `Too many URLs (max ${MAX_URLS}).` },
-      { status: 400 }
-    );
-  }
-
-  const downloadDir = await normalizeDownloadDir(body.folder);
-  await fs.mkdir(downloadDir, { recursive: true });
-
-  let ytdlp: string;
   try {
-    ytdlp = await getYtDlp();
+    // This app is designed to run locally so yt-dlp can write to *your* disk.
+    // On hosted/serverless environments (like Vercel), there's no reliable way to pick a
+    // client folder and downloads would land on an ephemeral server filesystem.
+    if (IS_VERCEL && !ALLOW_HOSTED_DOWNLOADS) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message:
+            "Downloads are disabled on hosted deployments. Run the app locally (npm run dev, then open http://localhost:3000) so yt-dlp can save to your machine. If you really want to enable this on Vercel, set ALLOW_HOSTED_DOWNLOADS=1 (not recommended).",
+        },
+        { status: 501 }
+      );
+    }
+
+    const body = (await req.json().catch(() => ({}))) as DownloadRequestBody;
+    const urls = normalizeUrls(body.urls);
+    if (urls.length === 0) {
+      return NextResponse.json(
+        { status: "error", message: "No URLs provided" },
+        { status: 400 }
+      );
+    }
+    if (urls.length > MAX_URLS) {
+      return NextResponse.json(
+        { status: "error", message: `Too many URLs (max ${MAX_URLS}).` },
+        { status: 400 }
+      );
+    }
+
+    const downloadDir = await normalizeDownloadDir(body.folder);
+    try {
+      await fs.mkdir(downloadDir, { recursive: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        {
+          status: "error",
+          message: `Unable to create download folder: ${downloadDir} (${message})`,
+        },
+        { status: 400 }
+      );
+    }
+
+    let ytdlp: string;
+    try {
+      ytdlp = await getYtDlp();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return NextResponse.json({ status: "error", message }, { status: 500 });
+    }
+
+    const ffmpeg = getFfmpeg();
+
+    const outtmpl = path.join(downloadDir, "%(title)s [%(id)s].%(ext)s");
+    const format = ffmpeg ? "bestvideo*+bestaudio/best" : "best[ext=mp4]/best";
+
+    const results: DownloadResult[] = [];
+
+    for (const url of urls) {
+      const args = [
+        "--no-warnings",
+        "--no-progress",
+        "--no-playlist",
+        "--windows-filenames",
+        "--trim-filenames",
+        "180",
+        "-f",
+        format,
+        ...(ffmpeg ? ["--merge-output-format", "mp4"] : []),
+        "-o",
+        outtmpl,
+        "--dump-json",
+        "--no-simulate",
+        url,
+      ];
+
+      const { code, stdout, stderr } = await run(ytdlp, args, {
+        signal: req.signal,
+        timeoutMs: DOWNLOAD_TIMEOUT_MS,
+      });
+      if (code === 0) {
+        results.push({
+          url,
+          status: "success",
+          title: tryParseTitleFromDumpJson(stdout),
+        });
+      } else {
+        results.push({
+          url,
+          status: "failed",
+          error: cleanYtDlpStderr(stderr) || "Download failed",
+        });
+      }
+    }
+    return NextResponse.json({
+      status: "success",
+      results,
+      download_folder: downloadDir,
+      ffmpeg,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ status: "error", message }, { status: 500 });
+    return NextResponse.json(
+      { status: "error", message: message || "Internal error." },
+      { status: 500 }
+    );
   }
-
-  const ffmpeg = getFfmpeg();
-
-  const outtmpl = path.join(downloadDir, "%(title)s [%(id)s].%(ext)s");
-  const format = ffmpeg ? "bestvideo*+bestaudio/best" : "best[ext=mp4]/best";
-
-  const results: DownloadResult[] = [];
-
-  for (const url of urls) {
-    const args = [
-      "--no-warnings",
-      "--no-progress",
-      "--no-playlist",
-      "--windows-filenames",
-      "--trim-filenames",
-      "180",
-      "-f",
-      format,
-      ...(ffmpeg ? ["--merge-output-format", "mp4"] : []),
-      "-o",
-      outtmpl,
-      "--dump-json",
-      "--no-simulate",
-      url,
-    ];
-
-    const { code, stdout, stderr } = await run(ytdlp, args, {
-      signal: req.signal,
-      timeoutMs: DOWNLOAD_TIMEOUT_MS,
-    });
-    if (code === 0) {
-      results.push({
-        url,
-        status: "success",
-        title: tryParseTitleFromDumpJson(stdout),
-      });
-    } else {
-      results.push({
-        url,
-        status: "failed",
-        error: cleanYtDlpStderr(stderr) || "Download failed",
-      });
-    }
-  }
-
-  return NextResponse.json({
-    status: "success",
-    results,
-    download_folder: downloadDir,
-    ffmpeg,
-  });
 }
