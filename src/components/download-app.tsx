@@ -77,6 +77,10 @@ type DownloadApiResponse =
     }
   | { status: "error"; message: string };
 
+type DownloadAppProps = {
+  isLocalHost: boolean;
+};
+
 function uid() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -125,7 +129,7 @@ function extractUrlsOrLines(text: string) {
   };
 }
 
-export function DownloadApp() {
+export function DownloadApp({ isLocalHost }: DownloadAppProps) {
   const [folder, setFolder] = useState("");
   const [links, setLinks] = useState("");
   const [picking, setPicking] = useState(false);
@@ -142,11 +146,6 @@ export function DownloadApp() {
   const downloadFolderRef = useRef<string | null>(null);
 
   const parsed = useMemo(() => extractUrlsOrLines(links), [links]);
-  const isLocalHost = useMemo(() => {
-    if (typeof window === "undefined") return true;
-    const host = window.location.hostname;
-    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-  }, []);
 
   function addStatus(text: string, type: StatusType = "info") {
     setStatuses((s) => [...s, { id: uid(), type, text, at: Date.now() }]);
