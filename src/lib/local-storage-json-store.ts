@@ -1,4 +1,4 @@
-import { readJson, writeJson } from "@/lib/storage";
+import { writeJson } from "@/lib/storage";
 
 export type JsonStore<T> = {
   subscribe: (listener: () => void) => () => void;
@@ -19,6 +19,15 @@ export function createLocalStorageJsonStore<T>({
   coerce: (input: unknown) => T;
 }): JsonStore<T> {
   const eventName = `zvd:store:${key}`;
+
+  // `useSyncExternalStore` expects `getSnapshot()` to return a referentially-stable
+  // value as long as the underlying store hasn't changed.
+  //
+  // If we parse JSON on every call, we'd create a new object/array each render and
+  // React would detect it as a changing snapshot, causing an infinite re-render loop
+  // (Minified React error #185 / "Maximum update depth exceeded").
+  let cachedRaw: string | null | undefined = undefined;
+  let cachedSnapshot: T = defaultValue;
 
   function emit() {
     if (typeof window === "undefined") return;
@@ -44,7 +53,31 @@ export function createLocalStorageJsonStore<T>({
   }
 
   function getSnapshot(): T {
-    return coerce(readJson(key, defaultValue));
+    if (typeof window === "undefined") return defaultValue;
+
+    let raw: string | null;
+    try {
+      raw = localStorage.getItem(key);
+    } catch {
+      // If localStorage is unavailable (privacy mode, blocked, etc.), fall back
+      // to the cached snapshot for stability.
+      return cachedRaw === undefined ? defaultValue : cachedSnapshot;
+    }
+
+    if (raw === cachedRaw) return cachedSnapshot;
+
+    cachedRaw = raw;
+    if (!raw) {
+      cachedSnapshot = coerce(defaultValue);
+      return cachedSnapshot;
+    }
+
+    try {
+      cachedSnapshot = coerce(JSON.parse(raw));
+    } catch {
+      cachedSnapshot = coerce(defaultValue);
+    }
+    return cachedSnapshot;
   }
 
   function getServerSnapshot(): T {
@@ -52,7 +85,17 @@ export function createLocalStorageJsonStore<T>({
   }
 
   function set(value: T) {
-    writeJson(key, value);
+    // Ensure cache is updated before emitting so subscribers see a stable snapshot
+    // immediately after the notification.
+    const next = coerce(value);
+    cachedSnapshot = next;
+    try {
+      cachedRaw = JSON.stringify(next);
+    } catch {
+      cachedRaw = null;
+    }
+
+    writeJson(key, next);
     emit();
   }
 
@@ -61,8 +104,7 @@ export function createLocalStorageJsonStore<T>({
   }
 
   function clear() {
-    writeJson(key, defaultValue);
-    emit();
+    set(defaultValue);
   }
 
   return { subscribe, getSnapshot, getServerSnapshot, set, update, clear };
