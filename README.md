@@ -19,6 +19,19 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Pages
+
+- `/` Downloader UI
+- `/history` Saved download sessions (stored in your browser)
+- `/settings` Preferences (stored in your browser)
+- `/help` Setup + FAQ
+
+## API
+
+- `GET /api/health` Basic diagnostics for `yt-dlp` and `ffmpeg`.
+- `POST /api/download` Run `yt-dlp` for one or more URLs (intended for local-only usage).
+- `POST /api/select-folder` macOS-only folder picker (uses `osascript`).
+
 ## Dev helpers
 
 - `npm run typecheck`
@@ -27,5 +40,6 @@ Open `http://localhost:3000`.
 
 ## Notes
 
+- Hosted deployments (Vercel) are treated as a UI preview and disable downloads by default.
 - Folder picker uses `osascript` and only works on macOS.
 - If `yt-dlp` isn't found automatically, set `YTDLP_PATH` before running `npm run dev`.
